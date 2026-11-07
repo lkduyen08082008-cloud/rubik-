@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Game Rubik 3D</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #1a1a1a;
+            font-family: Arial, sans-serif;
+        }
+        #info {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            text-align: center;
+            color: #fff;
+            pointer-events: none;
+            user-select: none;
+        }
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            font-weight: bold;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            transition: 0.2s;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+    <!-- Tải thư viện Three.js và OrbitControls -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+</head>
+<body>
+
+    <div id="info">
+        <h2>GAME RUBIK 3D</h2>
+        <p>Giữ chuột trái và kéo để xoay góc nhìn camera</p>
+    </div>
+
+    <div id="controls">
+        <button onclick="scrambleCube()">Tráo Khối Rubik</button>
+    </div>
+
+    <script>
+        // --- 1. THIẾT LẬP CẢNH (SCENE), CAMERA & RENDERER ---
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(6, 6, 8);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        document.body.appendChild(renderer.domElement);
+
+        // Thêm ánh sáng
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight.position.set(10, 20, 15);
+        scene.add(directionalLight);
+
+        // Thêm bộ điều khiển góc nhìn
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+
+        // --- 2. TẠO KHỐI RUBIK 3x3x3 ---
+        const cubeGroup = new THREE.Group();
+        scene.add(cubeGroup);
+
+        // Định nghĩa 6 màu tiêu chuẩn của Rubik: Phải, Trái, Trên, Dưới, Trước, Sau
+        const materials = [
+            new THREE.MeshLambertMaterial({ color: 0xb71234 }), // Phải (Đỏ)
+            new THREE.MeshLambertMaterial({ color: 0xff5800 }), // Trái (Cam)
+            new THREE.MeshLambertMaterial({ color: 0xffffff }), // Trên (Trắng)
+            new THREE.MeshLambertMaterial({ color: 0x009b48 }), // Dưới (Xanh lá)
+            new THREE.MeshLambertMaterial({ color: 0x0046ad }), // Trước (Xanh dương)
+            new THREE.MeshLambertMaterial({ color: 0xffd500 })  // Sau (Vàng)
+        ];
+
+        const cubeSize = 0.96; // Kích thước mỗi viên nhỏ (chừa chút khe hở)
+        const gap = 1;         // Khoảng cách tâm các viên
+
+        const cubes = [];
+
+        for (let x = -1; x <= 1; x++) {
+            for (let y = -1; y <= 1; y++) {
+                for (let z = -1; z <= 1; z++) {
+                    const geometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+                    
+                    // Viền đen quanh từng khối nhỏ
+                    const edges = new THREE.EdgesGeometry(geometry);
+                    const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }));
+                    
+                    const cubelet = new THREE.Mesh(geometry, materials);
+                    cubelet.position.set(x * gap, y * gap, z * gap);
+                    cubelet.add(line);
+
+                    cubeGroup.add(cubelet);
+                    cubes.push(cubelet);
+                }
+            }
+        }
+
+        // --- 3. LOGIC XOAY CÁC MẶT RUBIK ---
+        let isRotating = false;
+
+        function rotateFace(axis, layer, angle, duration = 300) {
+            if (isRotating) return Promise.resolve();
+            isRotating = true;
+
+            return new Promise((resolve) => {
+                const pivot = new THREE.Group();
+                scene.add(pivot);
+
+                // Lọc các viên nhỏ thuộc mặt cần xoay
+                const activeCubes = cubes.filter(c => {
+                    const pos = new THREE.Vector3();
+                    c.getWorldPosition(pos);
+                    return Math.abs(pos[axis] - layer) < 0.1;
+                });
+
+                // Gắn tạm vào pivot để xoay
+                activeCubes.forEach(c => pivot.attach(c));
+
+                const startTime = performance.now();
+                const startRotation = 0;
+
+                function animateRotation(time) {
+                    const elapsed = time - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+                    
+                    pivot.rotation[axis] = startRotation + progress * angle;
+
+                    if (progress < 1) {
+                        requestAnimationFrame(animateRotation);
+                    } else {
+                        // Cập nhật vị trí cố định sau khi xoay xong
+                        pivot.rotation[axis] = angle;
+                        pivot.updateMatrixWorld();
+
+                        activeCubes.forEach(c => {
+                            cubeGroup.attach(c);
+                            // Làm tròn tọa độ để tránh sai số số thực
+                            c.position.x = Math.round(c.position.x);
+                            c.position.y = Math.round(c.position.y);
+                            c.position.z = Math.round(c.position.z);
+                        });
+
+                        scene.remove(pivot);
+                        isRotating = false;
+                        resolve();
+                    }
+                }
+
+                requestAnimationFrame(animateRotation);
+            });
+        }
+
+        // --- 4. TÍNH NĂNG TRÁO RUBIK ---
+        async function scrambleCube() {
+            if (isRotating) return;
+            const axes = ['x', 'y', 'z'];
+            const layers = [-1, 0, 1];
+            const angles = [Math.PI / 2, -Math.PI / 2];
+
+            const numMoves = 15; // Số bước tráo
+
+            for (let i = 0; i < numMoves; i++) {
+                const axis = axes[Math.floor(Math.random() * axes.length)];
+                const layer = layers[Math.floor(Math.random() * layers.length)];
+                const angle = angles[Math.floor(Math.random() * angles.length)];
+
+                await rotateFace(axis, layer, angle, 100); // Tráo nhanh (100ms/bước)
+            }
+        }
+
+        // --- 5. ĐIỀU KHIỂN BẰNG BÀN PHÍM ---
+        window.addEventListener('keydown', (e) => {
+            if (isRotating) return;
+            const key = e.key.toUpperCase();
+            
+            // Nhấn phím để xoay các mặt tiêu chuẩn
+            if (key === 'R') rotateFace('x', 1, -Math.PI / 2);  // Right
+            if (key === 'L') rotateFace('x', -1, Math.PI / 2);  // Left
+            if (key === 'U') rotateFace('y', 1, -Math.PI / 2);  // Up
+            if (key === 'D') rotateFace('y', -1, Math.PI / 2);  // Down
+            if (key === 'F') rotateFace('z', 1, -Math.PI / 2);  // Front
+            if (key === 'B') rotateFace('z', -1, Math.PI / 2);  // Back
+        });
+
+        // Tự động điều chỉnh khi thay đổi kích thước màn hình
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Loop hiển thị
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        animate();
+    </script>
+</body>
+</html>
